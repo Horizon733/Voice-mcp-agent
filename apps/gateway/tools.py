@@ -6,7 +6,6 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from apps.gateway import config
@@ -39,69 +38,6 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
             }
         )
     return {"query": query, "results": results}
-
-
-def get_weather(location: str) -> dict[str, Any]:
-    """Current weather via Open-Meteo (geocode + forecast). No API key."""
-    geo_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode(
-        {"name": location, "count": 1, "language": "en", "format": "json"}
-    )
-    geo = _http_json(geo_url)
-    results = geo.get("results") or []
-    if not results:
-        return {"error": f"Could not find location '{location}'"}
-
-    place = results[0]
-    lat, lon = place["latitude"], place["longitude"]
-    label = ", ".join(
-        p for p in [place.get("name"), place.get("admin1"), place.get("country")] if p
-    )
-
-    weather_url = "https://api.open-meteo.com/v1/forecast?" + urlencode(
-        {
-            "latitude": lat,
-            "longitude": lon,
-            "current": "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
-            "timezone": "auto",
-        }
-    )
-    weather = _http_json(weather_url)
-    current = weather.get("current") or {}
-    return {
-        "location": label,
-        "latitude": lat,
-        "longitude": lon,
-        "temperature_c": current.get("temperature_2m"),
-        "humidity_percent": current.get("relative_humidity_2m"),
-        "wind_speed_kmh": current.get("wind_speed_10m"),
-        "weather_code": current.get("weather_code"),
-        "observed_at": current.get("time"),
-    }
-
-
-def get_news(topic: str = "top technology", max_results: int = 5) -> dict[str, Any]:
-    """News headlines via DuckDuckGo news. No API key required."""
-    try:
-        from duckduckgo_search import DDGS
-    except ImportError:
-        try:
-            from ddgs import DDGS  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("Install duckduckgo-search (or ddgs)") from exc
-
-    articles = []
-    ddgs = DDGS()
-    for item in ddgs.news(topic, max_results=max_results):
-        articles.append(
-            {
-                "title": item.get("title"),
-                "url": item.get("url") or item.get("href"),
-                "source": item.get("source"),
-                "date": item.get("date"),
-                "snippet": item.get("body"),
-            }
-        )
-    return {"topic": topic, "articles": articles}
 
 
 def _notes_db() -> Path:
@@ -170,22 +106,32 @@ def notes_search(query: str, limit: int = 10) -> dict[str, Any]:
     return {"query": query, "count": len(notes), "notes": notes}
 
 
+def notes(action: str, **kwargs) -> dict[str, Any]:
+    """Unified notes tool with add/list/search actions."""
+    normalized = (action or "").strip().lower()
+    if normalized == "add":
+        return notes_add(
+            content=str(kwargs.get("content", "")),
+            tags=str(kwargs.get("tags", "")),
+        )
+    if normalized == "list":
+        return notes_list(limit=int(kwargs.get("limit", 10)))
+    if normalized == "search":
+        return notes_search(
+            query=str(kwargs.get("query", "")),
+            limit=int(kwargs.get("limit", 10)),
+        )
+    return {
+        "error": "Invalid notes action",
+        "allowed_actions": ["add", "list", "search"],
+    }
+
+
 TOOL_HANDLERS = {
     "web_search": lambda **kw: web_search(
         query=kw.get("query", ""), max_results=int(kw.get("max_results", 5))
     ),
-    "get_weather": lambda **kw: get_weather(location=kw.get("location", "")),
-    "get_news": lambda **kw: get_news(
-        topic=kw.get("topic", "top technology"),
-        max_results=int(kw.get("max_results", 5)),
-    ),
-    "notes_add": lambda **kw: notes_add(
-        content=kw.get("content", ""), tags=kw.get("tags", "")
-    ),
-    "notes_list": lambda **kw: notes_list(limit=int(kw.get("limit", 10))),
-    "notes_search": lambda **kw: notes_search(
-        query=kw.get("query", ""), limit=int(kw.get("limit", 10))
-    ),
+    "notes": lambda **kw: notes(action=kw.get("action", ""), **kw),
 }
 
 
