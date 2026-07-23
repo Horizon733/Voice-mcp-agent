@@ -54,6 +54,8 @@ The model auto-downloads the first time the gateway starts (needs internet once;
 | `web_search` | DuckDuckGo web search |
 | `notes` | Unified memory tool with `action=add|list|search` (SQLite in `data/notes.db`) |
 
+If Gemini fails at runtime and Groq fallback is configured, the fallback path also runs the same `web_search` and `notes` tools before answering.
+
 Try saying:
 - “Search the web for the latest AI chips headlines.”
 - “Remember that my workshop is on Friday.”
@@ -132,6 +134,42 @@ uvicorn apps.gateway.main:app --host 0.0.0.0 --port 8000
 ```
 
 Then start `apps/jarvis-orb` as above.
+
+### Improve Transcription Speed/Quality (recommended first)
+
+The gateway now supports STT tuning via `.env`:
+
+```bash
+# model
+WHISPER_MODEL=medium.en
+
+# decode profile: fast | balanced | accurate
+STT_PROFILE=balanced
+
+# auto chooses int8_float16 on cuda, int8 otherwise
+STT_COMPUTE_TYPE=auto
+
+# force English for better speed/stability (or use auto)
+STT_LANGUAGE=en
+
+# trim silence and tune search width
+STT_VAD_FILTER=true
+STT_BEAM_SIZE=2
+```
+
+Recommended low-latency setup on NVIDIA + conda:
+
+```bash
+WHISPER_MODEL=medium.en
+STT_DEVICE=cuda
+STT_PROFILE=fast
+STT_COMPUTE_TYPE=auto
+STT_LANGUAGE=en
+STT_VAD_FILTER=true
+STT_BEAM_SIZE=1
+```
+
+If GPU memory is still tight, use `small.en` with `STT_PROFILE=fast`.
 
 ---
 

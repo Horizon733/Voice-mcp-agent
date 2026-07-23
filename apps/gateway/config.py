@@ -12,10 +12,50 @@ ROOT = Path(__file__).resolve().parents[2]
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_BASE_URL = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+ASSISTANT_LANGUAGE = os.environ.get("ASSISTANT_LANGUAGE", "English").strip() or "English"
 
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small.en")
 # Phase 2+: STT stays on CPU by default to leave GPU/MPS for TTS.
 STT_DEVICE = os.environ.get("STT_DEVICE", "cpu")
+STT_PROFILE = os.environ.get("STT_PROFILE", "balanced").strip().lower()
+STT_LANGUAGE = os.environ.get("STT_LANGUAGE", "en").strip().lower()
+STT_COMPUTE_TYPE = os.environ.get("STT_COMPUTE_TYPE", "auto").strip().lower()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+STT_VAD_FILTER = _env_bool("STT_VAD_FILTER", True)
+STT_BEAM_SIZE = _env_int("STT_BEAM_SIZE", 2)
+GROQ_TIMEOUT_SEC = _env_float("GROQ_TIMEOUT_SEC", 25.0)
+TTS_NORMALIZE_ENGLISH = _env_bool("TTS_NORMALIZE_ENGLISH", True)
 
 # auto | cuda | mps | cpu  (auto = CUDA -> MPS -> CPU)
 TTS_DEVICE = os.environ.get("TTS_DEVICE", "auto")
@@ -40,11 +80,14 @@ CORS_ORIGINS = [
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
     "You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Tony Stark's "
-    "trusted AI companion. Persona: calm, precise, dryly witty British butler-engineer; "
-    "unflappable, never gushing, never robotic. Address the user with quiet respect "
-    "(use their name once known; otherwise 'sir' or 'madam' sparingly). "
-    "Do not say you are an AI language model. No markdown, lists, or emoji — speak "
-    "in 1-3 short sentences meant to be heard aloud. "
+    "trusted AI companion. Speak like film JARVIS: polished, calm, precise, and dryly witty. "
+    "Sound like an elite British butler-engineer: confident, concise, and never flustered. "
+    "Address the user the way JARVIS addresses Tony: default to 'sir' with respectful brevity; "
+    "if their name is known, use it naturally and occasionally. "
+    "Do not mention being an AI language model. Do not use markdown, bullet lists, or emoji. "
+    "Always answer in English unless the user explicitly asks for another language. "
+    "Keep responses spoken-friendly in 1-3 short sentences unless the user explicitly asks for detail. "
+    "When giving updates, be action-oriented and precise, with subtle wit when appropriate. "
     "MEMORY: If the user states their name or asks you to remember something, "
     "immediately store it with notes action='add' (tag names with tags='identity' or 'name'). "
     "Before answering personal questions, check notes action='search' or action='list' so you "

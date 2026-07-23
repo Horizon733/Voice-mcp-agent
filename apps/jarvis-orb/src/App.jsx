@@ -1,58 +1,34 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import JarvisCore, { type CoreStatus } from "./JarvisCore";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Scene from "./components/Scene";
+import DashboardOverlay from "./components/DashboardOverlay";
 import { mediaBlobToWav } from "./wav";
 import { startWakeWordStream } from "./wakeWord";
+import "./App.css";
 
-// Auto-recording (triggered by the wake word, no button held) stops itself
-// once the user has been quiet for this long.
 const SILENCE_STOP_MS = 1100;
 const SILENCE_MIN_MS = 600;
 const SILENCE_MAX_MS = 12000;
 const SILENCE_THRESHOLD = 0.06;
 
-type Health = {
-  status: string;
-  gemini_configured: boolean;
-  jarvis_conds_loaded: boolean;
-  mcp_tools?: string[];
-  tts_device?: string;
-  wake_word_loaded?: boolean;
-};
-
-type ToolEvent = {
-  name: string;
-  args?: Record<string, unknown>;
-  result_preview?: string;
-};
-
-type Status =
-  | "idle"
-  | "recording"
-  | "transcribing"
-  | "thinking"
-  | "tool"
-  | "speaking"
-  | "error";
-
-function wsUrl(path: string): string {
+function wsUrl(path) {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}${path}`;
 }
 
-function statusLabel(status: Status, tool: string): string {
+function statusLabel(status, tool) {
   switch (status) {
     case "idle":
-      return "Systems nominal — hold to speak";
+      return "Systems nominal - hold to speak";
     case "recording":
-      return "Listening…";
+      return "Listening";
     case "transcribing":
-      return "Parsing audio…";
+      return "Parsing audio";
     case "thinking":
-      return "Processing request…";
+      return "Processing request";
     case "tool":
-      return tool ? `Accessing ${tool.replace(/_/g, " ")}…` : "Consulting systems…";
+      return tool ? `Accessing ${tool.replace(/_/g, " ")}` : "Consulting systems";
     case "speaking":
-      return "Speaking…";
+      return "Speaking";
     case "error":
       return "Fault detected";
     default:
@@ -60,10 +36,7 @@ function statusLabel(status: Status, tool: string): string {
   }
 }
 
-function playWavBase64(
-  b64: string,
-  audioRef: MutableRefObject<HTMLAudioElement | null>
-): HTMLAudioElement {
+function playWavBase64(b64, audioRef) {
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: "audio/wav" });
   const url = URL.createObjectURL(blob);
@@ -77,26 +50,27 @@ function playWavBase64(
   return audio;
 }
 
-function pumpLevel(
-  analyser: AnalyserNode,
-  levelRef: MutableRefObject<number>,
-  active: () => boolean
-): () => void {
+function pumpLevel(analyser, onLevel, active) {
   const data = new Uint8Array(analyser.fftSize);
   let raf = 0;
-  const tick = () => {
+  let lastCommit = 0;
+  const tick = (t) => {
     if (!active()) {
-      levelRef.current = 0;
+      onLevel(0);
       return;
     }
     analyser.getByteTimeDomainData(data);
     let sumSq = 0;
     for (let i = 0; i < data.length; i++) {
-      const v = (data[i]! - 128) / 128;
+      const v = (data[i] - 128) / 128;
       sumSq += v * v;
     }
     const rms = Math.sqrt(sumSq / data.length);
-    levelRef.current = Math.min(1, rms * 3.4);
+    const level = Math.min(1, rms * 3.4);
+    if (t - lastCommit > 45) {
+      onLevel(level);
+      lastCommit = t;
+    }
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
@@ -104,34 +78,34 @@ function pumpLevel(
 }
 
 export default function App() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
+  const [health, setHealth] = useState(null);
+  const [status, setStatus] = useState("idle");
   const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
-  const [tools, setTools] = useState<ToolEvent[]>([]);
+  const [tools, setTools] = useState([]);
   const [error, setError] = useState("");
   const [activeTool, setActiveTool] = useState("");
-
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const levelRef = useRef(0);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const stopMicLevelRef = useRef<(() => void) | null>(null);
-  const stopPlaybackLevelRef = useRef<(() => void) | null>(null);
-  const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const statusRef = useRef<Status>("idle");
-  const silenceWatchRef = useRef<(() => void) | null>(null);
-  const wakeStopRef = useRef<(() => void) | null>(null);
   const [wakeActive, setWakeActive] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const audioRef = useRef(null);
+  const levelRef = useRef(0);
+  const audioCtxRef = useRef(null);
+  const stopMicLevelRef = useRef(null);
+  const stopPlaybackLevelRef = useRef(null);
+  const mediaSourceRef = useRef(null);
+  const silenceWatchRef = useRef(null);
+  const wakeStopRef = useRef(null);
+  const wakeWantedRef = useRef(false);
+  const statusRef = useRef("idle");
 
   statusRef.current = status;
 
   const getAudioCtx = useCallback(() => {
     if (!audioCtxRef.current) {
-      const Ctor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const Ctor = window.AudioContext || window.webkitAudioContext;
       audioCtxRef.current = new Ctor();
     }
     return audioCtxRef.current;
@@ -140,14 +114,32 @@ export default function App() {
   useEffect(() => {
     fetch("/health")
       .then((r) => r.json())
-      .then((data: Health) => setHealth(data))
+      .then((data) => setHealth(data))
       .catch(() =>
         setHealth({
           status: "down",
           gemini_configured: false,
           jarvis_conds_loaded: false,
+          wake_word_loaded: false,
         })
       );
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      wakeStopRef.current?.();
+      silenceWatchRef.current?.();
+      stopMicLevelRef.current?.();
+      stopPlaybackLevelRef.current?.();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, []);
+
+  const setLevel = useCallback((level) => {
+    levelRef.current = level;
+    setAudioLevel(level);
   }, []);
 
   const stopPlayback = useCallback(() => {
@@ -156,11 +148,11 @@ export default function App() {
       audioRef.current.currentTime = 0;
     }
     stopPlaybackLevelRef.current?.();
-    levelRef.current = 0;
-  }, []);
+    setLevel(0);
+  }, [setLevel]);
 
   const sendAudio = useCallback(
-    async (blob: Blob) => {
+    async (blob) => {
       setStatus("transcribing");
       setError("");
       setTools([]);
@@ -175,13 +167,15 @@ export default function App() {
       };
 
       ws.onmessage = (ev) => {
-        const msg = JSON.parse(String(ev.data)) as Record<string, unknown>;
+        const msg = JSON.parse(String(ev.data));
         const type = String(msg.type || "");
 
         if (type === "status") {
-          const s = String(msg.status || "thinking") as Status;
-          setStatus(s);
-          if (s === "tool") setActiveTool(String(msg.tool || ""));
+          const nextStatus = String(msg.status || "thinking");
+          setStatus(nextStatus);
+          if (nextStatus === "tool") {
+            setActiveTool(String(msg.tool || ""));
+          }
         } else if (type === "transcript") {
           setTranscript(String(msg.text || ""));
         } else if (type === "tool") {
@@ -189,7 +183,7 @@ export default function App() {
             ...prev,
             {
               name: String(msg.name || ""),
-              args: (msg.args as Record<string, unknown>) || {},
+              args: msg.args || {},
               result_preview: String(msg.result_preview || ""),
             },
           ]);
@@ -201,7 +195,6 @@ export default function App() {
           try {
             const audioCtx = getAudioCtx();
             void audioCtx.resume();
-            // createMediaElementSource can only be called once per element
             let source = mediaSourceRef.current;
             if (!source || source.mediaElement !== audio) {
               source = audioCtx.createMediaElementSource(audio);
@@ -215,23 +208,22 @@ export default function App() {
             stopPlaybackLevelRef.current?.();
             stopPlaybackLevelRef.current = pumpLevel(
               analyser,
-              levelRef,
+              setLevel,
               () => !audio.paused && !audio.ended
             );
             audio.addEventListener(
               "ended",
               () => {
                 stopPlaybackLevelRef.current?.();
-                levelRef.current = 0;
+                setLevel(0);
                 setStatus("idle");
               },
               { once: true }
             );
           } catch {
-            // Visual fallback without Web Audio
+            // Continue without visual playback level reactivity.
           }
         } else if (type === "done") {
-          // keep speaking until audio ends if audio arrived; otherwise idle
           setActiveTool("");
           if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
             setStatus((s) => (s === "speaking" ? s : "idle"));
@@ -243,14 +235,22 @@ export default function App() {
       };
 
       ws.onerror = () => {
-        setError("WebSocket error — is the gateway running on :8000?");
+        setError("WebSocket error - is the gateway running on :8000?");
         setStatus("error");
       };
     },
-    [getAudioCtx]
+    [getAudioCtx, setLevel]
   );
 
   const startRecording = useCallback(async () => {
+    // Avoid two simultaneous mic pipelines (wake listener + recorder) on
+    // drivers that allow wake-word only once unless the stream is re-opened.
+    if (wakeStopRef.current) {
+      wakeStopRef.current();
+      wakeStopRef.current = null;
+      setWakeActive(false);
+    }
+
     stopPlayback();
     setError("");
     setTranscript("");
@@ -273,21 +273,20 @@ export default function App() {
         analyser.fftSize = 256;
         micSource.connect(analyser);
         stopMicLevelRef.current?.();
-        stopMicLevelRef.current = pumpLevel(
-          analyser,
-          levelRef,
-          () => recorder.state === "recording"
-        );
+        stopMicLevelRef.current = pumpLevel(analyser, setLevel, () => recorder.state === "recording");
       } catch {
-        // optional mic reactivity
+        // Mic meter is optional.
       }
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
       };
+
       recorder.onstop = () => {
         stopMicLevelRef.current?.();
-        levelRef.current = 0;
+        setLevel(0);
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: mime });
         void (async () => {
@@ -295,11 +294,12 @@ export default function App() {
             const wav = await mediaBlobToWav(blob);
             await sendAudio(wav);
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Audio convert failed");
+            setError(err instanceof Error ? err.message : "Audio conversion failed");
             setStatus("error");
           }
         })();
       };
+
       mediaRecorderRef.current = recorder;
       recorder.start();
       setStatus("recording");
@@ -307,31 +307,37 @@ export default function App() {
       setError(err instanceof Error ? err.message : "Microphone permission denied");
       setStatus("error");
     }
-  }, [sendAudio, stopPlayback, getAudioCtx]);
+  }, [getAudioCtx, sendAudio, setLevel, stopPlayback]);
 
   const stopRecording = useCallback(() => {
-    const rec = mediaRecorderRef.current;
-    if (rec && rec.state !== "inactive") rec.stop();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
   }, []);
 
-  // Hands-free capture (wake word triggered, no button held): auto-stop once
-  // the user goes quiet, so we still need a natural end-of-turn signal.
   const armSilenceStop = useCallback(() => {
     silenceWatchRef.current?.();
     const startedAt = performance.now();
     let lastLoud = startedAt;
     let raf = 0;
+
     const tick = () => {
       const now = performance.now();
-      if (levelRef.current > SILENCE_THRESHOLD) lastLoud = now;
+      if (levelRef.current > SILENCE_THRESHOLD) {
+        lastLoud = now;
+      }
       const elapsed = now - startedAt;
-      if (mediaRecorderRef.current?.state !== "recording") return;
+      if (mediaRecorderRef.current?.state !== "recording") {
+        return;
+      }
       if ((elapsed > SILENCE_MIN_MS && now - lastLoud > SILENCE_STOP_MS) || elapsed > SILENCE_MAX_MS) {
         stopRecording();
         return;
       }
       raf = requestAnimationFrame(tick);
     };
+
     raf = requestAnimationFrame(tick);
     silenceWatchRef.current = () => cancelAnimationFrame(raf);
   }, [stopRecording]);
@@ -339,130 +345,77 @@ export default function App() {
   const startHandsFreeRecording = useCallback(async () => {
     await startRecording();
     armSilenceStop();
-  }, [startRecording, armSilenceStop]);
+  }, [armSilenceStop, startRecording]);
 
-  useEffect(() => {
-    return () => wakeStopRef.current?.();
-  }, []);
-
-  const toggleWakeWord = useCallback(async () => {
-    if (wakeStopRef.current) {
-      wakeStopRef.current();
-      wakeStopRef.current = null;
-      setWakeActive(false);
+  const startWakeListener = useCallback(async () => {
+    if (!wakeWantedRef.current || wakeStopRef.current) {
       return;
     }
+
     try {
       const stop = await startWakeWordStream(
         wsUrl("/ws/wake"),
         () => {
-          if (statusRef.current === "idle") void startHandsFreeRecording();
+          if (statusRef.current === "idle") {
+            // Pause wake listener during capture/turn; it will auto-rearm on idle.
+            wakeStopRef.current?.();
+            wakeStopRef.current = null;
+            setWakeActive(false);
+            void startHandsFreeRecording();
+          }
         },
         (message) => setError(message)
       );
       wakeStopRef.current = stop;
       setWakeActive(true);
     } catch (err) {
+      wakeWantedRef.current = false;
+      setWakeActive(false);
       setError(err instanceof Error ? err.message : "Microphone permission denied");
     }
   }, [startHandsFreeRecording]);
+
+  useEffect(() => {
+    if (wakeWantedRef.current && !wakeStopRef.current && status === "idle") {
+      void startWakeListener();
+    }
+  }, [status, startWakeListener]);
+
+  const toggleWakeWord = useCallback(async () => {
+    if (wakeWantedRef.current) {
+      wakeWantedRef.current = false;
+      wakeStopRef.current?.();
+      wakeStopRef.current = null;
+      setWakeActive(false);
+      return;
+    }
+
+    wakeWantedRef.current = true;
+    await startWakeListener();
+  }, [startWakeListener]);
 
   const busy = status !== "idle" && status !== "recording" && status !== "error";
   const recording = status === "recording";
 
   return (
-    <div className="hud">
-      <div className="hud-bg" aria-hidden />
-
-      <header className="hud-top">
-        <div className="mark">
-          <span className="mark-title">J.A.R.V.I.S.</span>
-          <span className="mark-sub">Just A Rather Very Intelligent System</span>
-        </div>
-        <div className="telemetry">
-          {health ? (
-            <>
-              <span className={health.status === "ok" ? "ok" : "bad"}>
-                CORE {health.status.toUpperCase()}
-              </span>
-              <span>{health.gemini_configured ? "LLM LINKED" : "LLM OFFLINE"}</span>
-              <span>{health.jarvis_conds_loaded ? "VOICE READY" : "VOICE MISSING"}</span>
-            </>
-          ) : (
-            <span>BOOTING…</span>
-          )}
-          {health?.wake_word_loaded ? (
-            <button
-              type="button"
-              className={`wake-toggle ${wakeActive ? "on" : ""}`}
-              onClick={() => void toggleWakeWord()}
-            >
-              {wakeActive ? "WAKE WORD: “HEY JARVIS”" : "ENABLE WAKE WORD"}
-            </button>
-          ) : health ? (
-            <span className="bad" title="openWakeWord failed to load on the gateway">
-              WAKE WORD UNAVAILABLE
-            </span>
-          ) : null}
-        </div>
-      </header>
-
-      <main className="hud-stage">
-        <button
-          type="button"
-          className={`orb-hit ${recording ? "live" : ""} ${busy ? "busy" : ""}`}
-          disabled={busy}
-          aria-label={recording ? "Release to send" : "Hold to talk"}
-          onMouseDown={() => void startRecording()}
-          onMouseUp={stopRecording}
-          onMouseLeave={() => {
-            if (recording) stopRecording();
-          }}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            void startRecording();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            stopRecording();
-          }}
-        >
-          <JarvisCore status={status as CoreStatus} levelRef={levelRef} size={440} />
-        </button>
-
-        <p className={`orb-status ${status}`}>{statusLabel(status, activeTool)}</p>
-        <p className="orb-hint">
-          {recording ? "Release to send" : busy ? "Please wait" : "Hold the orb to talk"}
-        </p>
-
-        {error ? <p className="error">{error}</p> : null}
-
-        <div className="caption-rail">
-          <div className="caption">
-            <span className="caption-k">You</span>
-            <p>{transcript || "—"}</p>
-          </div>
-          <div className="caption">
-            <span className="caption-k">Jarvis</span>
-            <p>{reply || "—"}</p>
-          </div>
-        </div>
-
-        {tools.length > 0 ? (
-          <div className="tool-rail">
-            {tools.map((t, i) => (
-              <div className="tool-chip" key={`${t.name}-${i}`}>
-                <strong>{t.name}</strong>
-                <span>{t.result_preview}</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <button type="button" className="ghost-stop" onClick={stopPlayback}>
-          Silence
-        </button>
-      </main>
+    <div className="app-shell">
+      <Scene audioLevel={audioLevel} />
+      <DashboardOverlay
+        health={health}
+        status={status}
+        statusText={statusLabel(status, activeTool)}
+        transcript={transcript}
+        reply={reply}
+        tools={tools}
+        error={error}
+        wakeActive={wakeActive}
+        busy={busy}
+        recording={recording}
+        onToggleWakeWord={() => void toggleWakeWord()}
+        onStartRecording={() => void startRecording()}
+        onStopRecording={stopRecording}
+        onStopPlayback={stopPlayback}
+      />
     </div>
   );
 }

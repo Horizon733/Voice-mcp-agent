@@ -10,6 +10,7 @@ from google import genai
 
 from apps.gateway import config
 from apps.gateway.agent import run_agent
+from apps.gateway.groq_fallback import ask_groq
 from apps.gateway.tts_engine import VoiceError, load_tts, synthesize_to_wav_bytes
 from apps.gateway.wake_word import WakeWordDetector
 
@@ -27,6 +28,7 @@ class GatewayModels:
         self.whisper: WhisperModel | None = None
         self.tts = None
         self.gemini: genai.Client | None = None
+        self.groq_enabled = False
         self.conds_loaded = False
         self.tts_device = "cpu"
         self.tts_backend = config.TTS_BACKEND
@@ -37,14 +39,15 @@ class GatewayModels:
         ]
 
     def load(self):
+        compute_type = _stt_compute_type(config.STT_DEVICE, config.STT_COMPUTE_TYPE)
         print(
             f"[gateway] Loading faster-whisper '{config.WHISPER_MODEL}' "
-            f"on {config.STT_DEVICE}..."
+            f"on {config.STT_DEVICE} (compute={compute_type}, profile={config.STT_PROFILE})..."
         )
         self.whisper = WhisperModel(
             config.WHISPER_MODEL,
             device=config.STT_DEVICE,
-            compute_type="int8",
+            compute_type=compute_type,
         )
 
         self.tts, _Conditionals, self.tts_device, self.tts_backend, self.conds_loaded = load_tts(
@@ -64,6 +67,12 @@ class GatewayModels:
             print("[gateway] WARNING: GEMINI_API_KEY not set. /v1/turn will fail until it is.")
             self.gemini = None
 
+        self.groq_enabled = bool(config.GROQ_API_KEY)
+        if self.groq_enabled:
+            print(f"[gateway] Groq fallback enabled with model '{config.GROQ_MODEL}'.")
+        else:
+            print("[gateway] Groq fallback disabled (GROQ_API_KEY not set).")
+
         print(f"[gateway] MCP tools ready: {', '.join(self.mcp_tools)}")
 
         if self.wake_word.load():
@@ -73,6 +82,45 @@ class GatewayModels:
 models = GatewayModels()
 
 
+def _stt_compute_type(device: str, configured: str) -> str:
+    if configured and configured != "auto":
+        return configured
+    if device == "cuda":
+        return "int8_float16"
+    return "int8"
+
+
+def _stt_decode_options() -> dict[str, Any]:
+    profile = config.STT_PROFILE
+    options: dict[str, Any]
+
+    if profile == "fast":
+        options = {
+            "beam_size": 1,
+            "best_of": 1,
+            "condition_on_previous_text": False,
+        }
+    elif profile == "accurate":
+        options = {
+            "beam_size": max(3, config.STT_BEAM_SIZE),
+            "best_of": max(3, config.STT_BEAM_SIZE),
+            "condition_on_previous_text": True,
+        }
+    else:
+        options = {
+            "beam_size": max(1, config.STT_BEAM_SIZE),
+            "best_of": max(1, config.STT_BEAM_SIZE),
+            "condition_on_previous_text": False,
+        }
+
+    options["vad_filter"] = config.STT_VAD_FILTER
+    options["temperature"] = 0.0
+    options["word_timestamps"] = False
+    if config.STT_LANGUAGE and config.STT_LANGUAGE != "auto":
+        options["language"] = config.STT_LANGUAGE
+    return options
+
+
 def transcribe(audio_bytes: bytes, on_event: EventCallback | None = None) -> str:
     if on_event:
         on_event({"type": "status", "status": "transcribing"})
@@ -80,7 +128,7 @@ def transcribe(audio_bytes: bytes, on_event: EventCallback | None = None) -> str
         tmp.write(audio_bytes)
         tmp_path = tmp.name
     try:
-        segments, _info = models.whisper.transcribe(tmp_path)
+        segments, _info = models.whisper.transcribe(tmp_path, **_stt_decode_options())
         text = " ".join(segment.text.strip() for segment in segments).strip()
         if on_event:
             on_event({"type": "transcript", "text": text})
@@ -93,12 +141,40 @@ def ask_gemini(
     transcript: str,
     on_event: EventCallback | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    if models.gemini is None:
+    gemini_error: Exception | None = None
+
+    if models.gemini is not None:
+        try:
+            return run_agent(models.gemini, transcript, on_event=on_event)
+        except Exception as exc:  # noqa: BLE001
+            gemini_error = exc
+
+    if models.groq_enabled:
+        try:
+            reply, groq_trace = ask_groq(transcript, on_event=on_event)
+            fallback_entry = {
+                "name": "llm_fallback",
+                "args": {"provider": "groq", "model": config.GROQ_MODEL},
+                "result_preview": "Gemini failed; continued with Groq fallback.",
+            }
+            if on_event:
+                on_event({"type": "tool", **fallback_entry})
+            return reply, [fallback_entry, *groq_trace]
+        except Exception as groq_exc:  # noqa: BLE001
+            if gemini_error is None:
+                raise ConfigError(f"Groq fallback failed: {groq_exc}") from groq_exc
+            raise ConfigError(
+                f"Gemini failed: {gemini_error}. Groq fallback failed: {groq_exc}"
+            ) from groq_exc
+
+    if gemini_error is not None:
         raise ConfigError(
-            "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key, "
-            "then restart the gateway."
-        )
-    return run_agent(models.gemini, transcript, on_event=on_event)
+            f"Gemini failed and Groq fallback is not configured: {gemini_error}"
+        ) from gemini_error
+
+    raise ConfigError(
+        "No LLM configured. Set GEMINI_API_KEY or GROQ_API_KEY in .env and restart the gateway."
+    )
 
 
 def synthesize(text: str, on_event: EventCallback | None = None) -> bytes:

@@ -1,15 +1,17 @@
 /** Encode an AudioBuffer as a mono 16-bit PCM WAV Blob. */
-export function audioBufferToWav(buffer: AudioBuffer): Blob {
+export function audioBufferToWav(buffer) {
   const numChannels = 1;
   const sampleRate = buffer.sampleRate;
   const samples = buffer.getChannelData(0);
-  // downmix if needed
   let mono = samples;
+
   if (buffer.numberOfChannels > 1) {
     mono = new Float32Array(buffer.length);
     for (let c = 0; c < buffer.numberOfChannels; c++) {
       const ch = buffer.getChannelData(c);
-      for (let i = 0; i < buffer.length; i++) mono[i] += ch[i] / buffer.numberOfChannels;
+      for (let i = 0; i < buffer.length; i++) {
+        mono[i] += ch[i] / buffer.numberOfChannels;
+      }
     }
   }
 
@@ -20,8 +22,10 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
   const array = new ArrayBuffer(headerSize + dataSize);
   const view = new DataView(array);
 
-  const writeStr = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
   };
 
   writeStr(0, "RIFF");
@@ -47,7 +51,7 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
   return new Blob([array], { type: "audio/wav" });
 }
 
-export async function mediaBlobToWav(blob: Blob): Promise<Blob> {
+export async function mediaBlobToWav(blob) {
   const ctx = new AudioContext();
   try {
     const raw = await blob.arrayBuffer();

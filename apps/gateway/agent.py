@@ -48,6 +48,7 @@ FUNCTION_DECLARATIONS = [
 
 SYSTEM_PROMPT_WITH_TOOLS = (
     config.SYSTEM_PROMPT
+    + f" Language policy: respond in {config.ASSISTANT_LANGUAGE} unless the user explicitly asks for another language. "
     + " Tools available: web_search and notes. "
     "Use notes action='add' whenever the user shares their name or asks you to remember a fact. "
     "Use notes action='search' when addressing them or recalling prior details. "
