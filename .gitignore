@@ -1,0 +1,49 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Models / voice artifacts (keep README in voices/)
+voices/*.wav
+voices/*.pt
+voices/*.pth
+!voices/README.md
+
+# Outputs / caches
+out.wav
+reply.wav
+*.wav
+!voices/README.md
+.cache/
+hf-cache/
+torch-cache/
+data/*.db
+data/*.sqlite
+
+# Frontend
+apps/web/node_modules/
+apps/web/dist/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Docker
+docker-data/

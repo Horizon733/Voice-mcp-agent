@@ -1,0 +1,37 @@
+# App dependencies for mcp-voice (Python 3.11 or 3.12).
+#
+# Install torch/torchaudio FIRST for your platform (see README), then:
+#   pip install -r requirements.txt
+#
+# chatterbox-tts currently expects torch==2.6.0.
+
+# --- STT ---
+faster-whisper>=1.0.3,<2.0.0
+
+# --- TTS (Jarvis voice clone) ---
+chatterbox-tts>=0.1.1
+
+# --- LLM (Gemini 2.5 Flash) ---
+google-genai>=1.0.0
+
+# --- MCP tools (search / weather / news / notes) ---
+mcp>=1.0.0
+duckduckgo-search>=6.0.0
+
+# --- Wake word ("hey jarvis"), CPU-only via ONNX Runtime ---
+openwakeword>=0.6.0
+
+# --- Packaging fix (Perth / pkg_resources on setuptools 83+) ---
+setuptools>=70,<81
+
+# --- API ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+websockets>=12.0
+
+# --- Utilities ---
+python-dotenv>=1.0.1
+soundfile>=0.12.1
+requests>=2.32.0
+numpy>=1.26.0,<2.1.0

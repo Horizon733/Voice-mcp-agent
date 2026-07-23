@@ -1,0 +1,67 @@
+# Default: CPU gateway — works the same on Windows, Mac, and Linux Docker.
+# Usage:
+#   copy .env.example .env   # set GEMINI_API_KEY
+#   docker compose up --build
+#   docker compose run --rm gateway python scripts/build_jarvis_conds.py --device cpu
+#
+# Optional NVIDIA GPU (Windows/Linux only — not Mac Docker Desktop):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    environment:
+      HF_HOME: /data/hf
+      TORCH_HOME: /data/torch
+      XDG_CACHE_HOME: /data/cache
+      STT_DEVICE: cpu
+      TTS_DEVICE: ${TTS_DEVICE:-cpu}
+      TTS_BACKEND: ${TTS_BACKEND:-turbo}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small.en}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      JARVIS_CONDS: /app/voices/jarvis_conds.pt
+      JARVIS_REF_WAV: /app/voices/jarvis-5s.wav
+      NOTES_DB_PATH: /app/data/notes.db
+    volumes:
+      - ./voices:/app/voices
+      - ./data:/app/data
+      - hf_cache:/data/hf
+      - torch_cache:/data/torch
+      - app_cache:/data/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      HF_HOME: /data/hf
+      TORCH_HOME: /data/torch
+      XDG_CACHE_HOME: /data/cache
+      NOTES_DB_PATH: /app/data/notes.db
+    command: ["python", "-m", "mcp_servers.assistant.server"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./data:/app/data
+      - app_cache:/data/cache
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+  torch_cache:
+  app_cache:

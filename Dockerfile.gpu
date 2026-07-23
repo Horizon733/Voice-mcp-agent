@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+# Optional NVIDIA GPU image (Windows/Linux with NVIDIA Container Toolkit).
+# Mac Docker Desktop: use the default Dockerfile (CPU) instead.
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HOME=/data/hf \
+    TORCH_HOME=/data/torch \
+    XDG_CACHE_HOME=/data/cache \
+    TTS_DEVICE=cuda \
+    STT_DEVICE=cpu \
+    TTS_BACKEND=turbo
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        git \
+        libsndfile1 \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN python -m pip install --upgrade pip wheel \
+    && pip install "setuptools>=70,<81" \
+    && pip install -r requirements.txt
+
+COPY apps ./apps
+COPY api ./api
+COPY scripts ./scripts
+COPY mcp_servers ./mcp_servers
+COPY voices/README.md ./voices/README.md
+
+RUN mkdir -p /data/hf /data/torch /data/cache /app/voices /app/data
+
+EXPOSE 8000
+
+CMD ["uvicorn", "apps.gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]

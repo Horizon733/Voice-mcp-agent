@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.env
+.vscode/
+.idea/
+*.wav
+out.wav
+reply.wav
+hf-cache/
+torch-cache/
+.cache/
+**/.DS_Store

@@ -1,0 +1,15 @@
+# Overlay for NVIDIA GPU hosts (not available on Mac Docker Desktop).
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    environment:
+      TTS_DEVICE: cuda
+      STT_DEVICE: cpu
+      XDG_CACHE_HOME: /data/cache
+    volumes:
+      - app_cache:/data/cache
+    gpus: all
