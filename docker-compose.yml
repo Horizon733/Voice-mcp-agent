@@ -1,6 +1,6 @@
 # Default: CPU gateway — works the same on Windows, Mac, and Linux Docker.
 # Usage:
-#   copy .env.example .env   # set GEMINI_API_KEY
+#   cp .env.example .env     # set GEMINI_API_KEY (Windows: copy .env.example .env)
 #   docker compose up --build
 #   docker compose run --rm gateway python scripts/build_jarvis_conds.py --device cpu
 #

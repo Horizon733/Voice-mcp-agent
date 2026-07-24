@@ -56,6 +56,10 @@ STT_VAD_FILTER = _env_bool("STT_VAD_FILTER", True)
 STT_BEAM_SIZE = _env_int("STT_BEAM_SIZE", 2)
 GROQ_TIMEOUT_SEC = _env_float("GROQ_TIMEOUT_SEC", 25.0)
 TTS_NORMALIZE_ENGLISH = _env_bool("TTS_NORMALIZE_ENGLISH", True)
+TTS_MAX_CHARS = _env_int("TTS_MAX_CHARS", 240)
+TTS_MAX_SENTENCES = _env_int("TTS_MAX_SENTENCES", 3)
+TTS_WARMUP_ENABLED = _env_bool("TTS_WARMUP_ENABLED", True)
+TTS_WARMUP_TEXT = os.environ.get("TTS_WARMUP_TEXT", "Ready, sir.").strip() or "Ready, sir."
 
 # auto | cuda | mps | cpu  (auto = CUDA -> MPS -> CPU)
 TTS_DEVICE = os.environ.get("TTS_DEVICE", "auto")

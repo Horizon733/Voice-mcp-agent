@@ -10,6 +10,28 @@ const SILENCE_MIN_MS = 600;
 const SILENCE_MAX_MS = 12000;
 const SILENCE_THRESHOLD = 0.06;
 
+function pickRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) {
+    return undefined;
+  }
+
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+  ];
+
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      return mime;
+    }
+  }
+
+  return undefined;
+}
+
 function wsUrl(path) {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}${path}`;
@@ -258,11 +280,13 @@ export default function App() {
     setTools([]);
 
     try {
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("This browser does not support MediaRecorder. Use a current Chrome, Edge, or Safari.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      const mime = pickRecorderMimeType();
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       chunksRef.current = [];
 
       try {
@@ -288,7 +312,8 @@ export default function App() {
         stopMicLevelRef.current?.();
         setLevel(0);
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mime });
+        const blobType = mime || chunksRef.current[0]?.type || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: blobType });
         void (async () => {
           try {
             const wav = await mediaBlobToWav(blob);

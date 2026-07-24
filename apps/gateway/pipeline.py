@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -82,6 +83,15 @@ class GatewayModels:
 
         if self.wake_word.load():
             print("[gateway] Wake-word ('hey jarvis') model ready.")
+
+        if config.TTS_WARMUP_ENABLED and self.conds_loaded:
+            warmup_start = time.perf_counter()
+            try:
+                synthesize_to_wav_bytes(self.tts, config.TTS_WARMUP_TEXT)
+                elapsed = time.perf_counter() - warmup_start
+                print(f"[gateway] TTS warmup complete in {elapsed:.2f}s")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[gateway] WARNING: TTS warmup failed: {exc}")
 
 
 models = GatewayModels()

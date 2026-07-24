@@ -45,7 +45,7 @@ def _normalize_tts_text(text: str) -> str:
     return s or raw
 
 
-def _compact_for_speech(text: str, max_chars: int = 520, max_sentences: int = 5) -> str:
+def _compact_for_speech(text: str, max_chars: int = 240, max_sentences: int = 3) -> str:
     """Compress long list-heavy text into concise spoken form for stable TTS."""
     s = (text or "").strip()
     if not s:
@@ -153,7 +153,11 @@ def synthesize_to_wav_bytes(model, text: str) -> bytes:
             "No voice conditionals loaded. Run scripts/build_jarvis_conds.py first."
         )
     spoken_text = _normalize_tts_text(text) if config.TTS_NORMALIZE_ENGLISH else text
-    spoken_text = _compact_for_speech(spoken_text)
+    spoken_text = _compact_for_speech(
+        spoken_text,
+        max_chars=max(80, config.TTS_MAX_CHARS),
+        max_sentences=max(1, config.TTS_MAX_SENTENCES),
+    )
     try:
         wav = model.generate(spoken_text)
     except torch.cuda.OutOfMemoryError as exc:

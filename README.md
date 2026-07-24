@@ -25,6 +25,9 @@ npm run dev
 
 Open **http://127.0.0.1:5173** → hold **HOLD TO TALK** → release → hear Jarvis.
 
+Browser note: Jarvis Orb is tested for modern Chromium browsers on Windows/Mac/Linux.
+Safari on macOS is supported with recording format fallback, but Chromium is recommended for the smoothest experience.
+
 ### Simpler workshop mode (no gateway)
 
 If attendees only need a minimal local flow (agent + MCP tools + voice), skip FastAPI/UI and run one script:
@@ -74,8 +77,11 @@ python -m mcp_servers.assistant.server
 
 ## Quick start (Docker)
 
+Important for Mac M1/M2/M3: Docker Desktop runs Linux containers, and PyTorch MPS is a macOS backend.
+So Docker runs this project on CPU on Mac. Use native setup below if you want MPS acceleration.
+
 ```bash
-cp .env.example .env          # set GEMINI_API_KEY
+cp .env.example .env          # set GEMINI_API_KEY (Windows PowerShell: copy .env.example .env)
 # voices/jarvis-5s.wav (>5s)
 
 docker compose build
@@ -107,6 +113,8 @@ cd apps/jarvis-orb && npm install && npm run dev
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 ```
 
+Mac note: this NVIDIA overlay does not apply to Docker Desktop on Apple Silicon.
+
 Gateway-only on GPU hosts:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build gateway
@@ -121,7 +129,7 @@ Python **3.11 or 3.12**:
 ```bash
 python -m venv .venv
 # Windows: .\.venv\Scripts\Activate.ps1
-# Mac:     source .venv/bin/activate
+# Mac/Linux: source .venv/bin/activate
 
 pip install -U pip wheel
 pip install "setuptools>=70,<81"
@@ -132,10 +140,47 @@ pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.
 # pip install torch==2.6.0 torchaudio==2.6.0
 
 pip install -r requirements.txt
-cp .env.example .env   # GEMINI_API_KEY, TTS_DEVICE=auto
+cp .env.example .env   # GEMINI_API_KEY, TTS_DEVICE=auto (Windows PowerShell: copy .env.example .env)
 python scripts/build_jarvis_conds.py --device auto --backend turbo
 uvicorn apps.gateway.main:app --host 0.0.0.0 --port 8000
 ```
+
+### Mac Apple Silicon with MPS (recommended)
+
+Use native Python (not Docker) to access MPS:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip wheel
+pip install "setuptools>=70,<81"
+pip install torch==2.6.0 torchaudio==2.6.0
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Then set these in `.env`:
+
+```bash
+TTS_DEVICE=mps
+STT_DEVICE=cpu
+TTS_BACKEND=turbo
+```
+
+Build conds and run:
+
+```bash
+python scripts/build_jarvis_conds.py --device mps --backend turbo
+uvicorn apps.gateway.main:app --host 0.0.0.0 --port 8000
+```
+
+Verify device selection:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Look for `"tts_device": "mps"` in the response.
 
 Then start `apps/jarvis-orb` as above.
 
