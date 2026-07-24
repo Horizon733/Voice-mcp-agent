@@ -35,6 +35,11 @@ class GatewayModels:
         self.wake_word = WakeWordDetector()
         self.mcp_tools = [
             "web_search",
+            "get_weather",
+            "get_news",
+            "notes_add",
+            "notes_list",
+            "notes_search",
             "notes",
         ]
 

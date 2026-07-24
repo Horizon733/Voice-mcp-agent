@@ -1,4 +1,4 @@
-"""MCP stdio server exposing web_search and notes tools.
+"""MCP stdio server exposing search, weather, news, and notes tools.
 
 Run standalone:
     python -m mcp_servers.assistant.server
@@ -31,6 +31,40 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 @mcp.tool()
+def get_weather(location: str) -> str:
+    """Get current weather for a city or place name."""
+    return json.dumps(tool_impl.get_weather(location=location), ensure_ascii=False)
+
+
+@mcp.tool()
+def get_news(topic: str = "top technology", max_results: int = 5) -> str:
+    """Get recent news headlines for a topic."""
+    return json.dumps(
+        tool_impl.get_news(topic=topic, max_results=max_results), ensure_ascii=False
+    )
+
+
+@mcp.tool()
+def notes_add(content: str, tags: str = "") -> str:
+    """Store a note or something the user asked you to remember."""
+    return json.dumps(tool_impl.notes_add(content=content, tags=tags), ensure_ascii=False)
+
+
+@mcp.tool()
+def notes_list(limit: int = 10) -> str:
+    """List recently saved notes."""
+    return json.dumps(tool_impl.notes_list(limit=limit), ensure_ascii=False)
+
+
+@mcp.tool()
+def notes_search(query: str, limit: int = 10) -> str:
+    """Search saved notes by keyword."""
+    return json.dumps(
+        tool_impl.notes_search(query=query, limit=limit), ensure_ascii=False
+    )
+
+
+@mcp.tool()
 def notes(
     action: str,
     content: str = "",
@@ -38,7 +72,7 @@ def notes(
     query: str = "",
     limit: int = 10,
 ) -> str:
-    """Manage notes memory with action=add|list|search."""
+    """Compatibility wrapper for unified notes action=add|list|search."""
     return json.dumps(
         tool_impl.notes(
             action=action,

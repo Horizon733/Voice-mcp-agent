@@ -25,22 +25,62 @@ FUNCTION_DECLARATIONS = [
         ),
     ),
     types.FunctionDeclaration(
-        name="notes",
+        name="get_weather",
+        description="Get current weather for a city or place name.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={"location": types.Schema(type=types.Type.STRING)},
+            required=["location"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="get_news",
+        description="Get recent news headlines about a topic.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "topic": types.Schema(type=types.Type.STRING),
+                "max_results": types.Schema(type=types.Type.INTEGER),
+            },
+            required=["topic"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="notes_add",
         description=(
-            "Manage long-term memory with action=add|list|search. "
-            "Use add when the user shares their name or asks you to remember a fact. "
-            "Use search/list before answering personal questions."
+            "Store a lasting memory. REQUIRED when the user states their name "
+            "(use tags='identity') or asks you to remember a fact."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
-                "action": types.Schema(type=types.Type.STRING),
                 "content": types.Schema(type=types.Type.STRING),
                 "tags": types.Schema(type=types.Type.STRING),
+            },
+            required=["content"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="notes_list",
+        description="List recently saved notes and memories about the user.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={"limit": types.Schema(type=types.Type.INTEGER)},
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="notes_search",
+        description=(
+            "Search stored memories (names, preferences, facts). "
+            "Use before answering personal questions."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
                 "query": types.Schema(type=types.Type.STRING),
                 "limit": types.Schema(type=types.Type.INTEGER),
             },
-            required=["action"],
+            required=["query"],
         ),
     ),
 ]
@@ -49,10 +89,10 @@ FUNCTION_DECLARATIONS = [
 SYSTEM_PROMPT_WITH_TOOLS = (
     config.SYSTEM_PROMPT
     + f" Language policy: respond in {config.ASSISTANT_LANGUAGE} unless the user explicitly asks for another language. "
-    + " Tools available: web_search and notes. "
-    "Use notes action='add' whenever the user shares their name or asks you to remember a fact. "
-    "Use notes action='search' when addressing them or recalling prior details. "
-    "Use web_search when up-to-date info is needed. "
+    + " Tools available: web_search, get_weather, get_news, notes_add, notes_list, notes_search. "
+    "Use notes_add whenever the user shares their name or asks you to remember a fact. "
+    "Use notes_search when addressing them or recalling prior details. "
+    "Use weather/news/search when up-to-date info is needed. "
     "After tools, answer briefly in Jarvis's voice. Never narrate tool names unless asked."
 )
 

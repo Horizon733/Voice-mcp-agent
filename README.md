@@ -52,11 +52,15 @@ The model auto-downloads the first time the gateway starts (needs internet once;
 | Tool | What it does |
 |---|---|
 | `web_search` | DuckDuckGo web search |
-| `notes` | Unified memory tool with `action=add|list|search` (SQLite in `data/notes.db`) |
+| `get_weather` | Open-Meteo weather by city |
+| `get_news` | DuckDuckGo news headlines |
+| `notes_add` / `notes_list` / `notes_search` | Remember / recall things you said (SQLite in `data/notes.db`) |
 
-If Gemini fails at runtime and Groq fallback is configured, the fallback path also runs the same `web_search` and `notes` tools before answering.
+If Gemini fails at runtime and Groq fallback is configured, the fallback path also runs the same tool set before answering.
 
 Try saying:
+- “What's the weather in Mumbai?”
+- “Any news about AI chips?”
 - “Search the web for the latest AI chips headlines.”
 - “Remember that my workshop is on Friday.”
 - “What notes do you have saved for me?”

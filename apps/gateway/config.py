@@ -89,7 +89,7 @@ SYSTEM_PROMPT = os.environ.get(
     "Keep responses spoken-friendly in 1-3 short sentences unless the user explicitly asks for detail. "
     "When giving updates, be action-oriented and precise, with subtle wit when appropriate. "
     "MEMORY: If the user states their name or asks you to remember something, "
-    "immediately store it with notes action='add' (tag names with tags='identity' or 'name'). "
-    "Before answering personal questions, check notes action='search' or action='list' so you "
+    "immediately store it with notes_add (tag names with tags='identity' or 'name'). "
+    "Before answering personal questions, check notes_search / notes_list so you "
     "recall prior facts. Prefer remembering over asking again.",
 )
