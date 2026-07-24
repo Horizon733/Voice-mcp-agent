@@ -1,13 +1,16 @@
-"""Gemini + MCP tool-calling agent loop."""
+"""Workshop scaffold for Gemini + tool-calling agent loop.
+
+This file intentionally keeps only the interface and a TODO-oriented control
+flow so attendees can implement model/tool logic step by step.
+"""
 from __future__ import annotations
 
-import json
 from typing import Any, Callable
 
 from google.genai import types
 
 from apps.gateway import config
-from apps.gateway.tools import TOOL_HANDLERS, call_tool
+from apps.gateway.tools import TOOL_HANDLERS
 
 EventCallback = Callable[[dict[str, Any]], None]
 
@@ -25,62 +28,21 @@ FUNCTION_DECLARATIONS = [
         ),
     ),
     types.FunctionDeclaration(
-        name="get_weather",
-        description="Get current weather for a city or place name.",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={"location": types.Schema(type=types.Type.STRING)},
-            required=["location"],
-        ),
-    ),
-    types.FunctionDeclaration(
-        name="get_news",
-        description="Get recent news headlines about a topic.",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "topic": types.Schema(type=types.Type.STRING),
-                "max_results": types.Schema(type=types.Type.INTEGER),
-            },
-            required=["topic"],
-        ),
-    ),
-    types.FunctionDeclaration(
-        name="notes_add",
+        name="notes",
         description=(
-            "Store a lasting memory. REQUIRED when the user states their name "
-            "(use tags='identity') or asks you to remember a fact."
+            "Manage memory with action=add|list|search. "
+            "Use add when user shares details to remember."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
+                "action": types.Schema(type=types.Type.STRING),
                 "content": types.Schema(type=types.Type.STRING),
                 "tags": types.Schema(type=types.Type.STRING),
-            },
-            required=["content"],
-        ),
-    ),
-    types.FunctionDeclaration(
-        name="notes_list",
-        description="List recently saved notes and memories about the user.",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={"limit": types.Schema(type=types.Type.INTEGER)},
-        ),
-    ),
-    types.FunctionDeclaration(
-        name="notes_search",
-        description=(
-            "Search stored memories (names, preferences, facts). "
-            "Use before answering personal questions."
-        ),
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
                 "query": types.Schema(type=types.Type.STRING),
                 "limit": types.Schema(type=types.Type.INTEGER),
             },
-            required=["query"],
+            required=["action"],
         ),
     ),
 ]
@@ -89,10 +51,10 @@ FUNCTION_DECLARATIONS = [
 SYSTEM_PROMPT_WITH_TOOLS = (
     config.SYSTEM_PROMPT
     + f" Language policy: respond in {config.ASSISTANT_LANGUAGE} unless the user explicitly asks for another language. "
-    + " Tools available: web_search, get_weather, get_news, notes_add, notes_list, notes_search. "
-    "Use notes_add whenever the user shares their name or asks you to remember a fact. "
-    "Use notes_search when addressing them or recalling prior details. "
-    "Use weather/news/search when up-to-date info is needed. "
+    + " Tools available: web_search and notes. "
+    "Use notes action='add' whenever the user shares their name or asks you to remember a fact. "
+    "Use notes action='search' when addressing them or recalling prior details. "
+    "Use web_search when up-to-date info is needed. "
     "After tools, answer briefly in Jarvis's voice. Never narrate tool names unless asked."
 )
 
@@ -140,55 +102,49 @@ def run_agent(
     on_event: EventCallback | None = None,
     max_tool_rounds: int = 4,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Run Gemini with MCP-backed tools. Returns (final_text, tool_trace)."""
-    tools = [types.Tool(function_declarations=FUNCTION_DECLARATIONS)]
-    contents: list[types.Content] = [
-        types.Content(role="user", parts=[types.Part(text=user_text)])
-    ]
-    tool_trace: list[dict[str, Any]] = []
+    """TODO: run Gemini with tool-calling. Returns (final_text, tool_trace)."""
+    _emit(on_event, {"type": "status", "status": "todo_agent"})
 
-    for _round in range(max_tool_rounds + 1):
-        _emit(on_event, {"type": "status", "status": "thinking"})
-        response = client.models.generate_content(
-            model=config.GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT_WITH_TOOLS,
-                tools=tools,
+    tool_trace = [
+        {
+            "name": "run_agent",
+            "args": {"max_tool_rounds": max_tool_rounds},
+            "result_preview": (
+                "TODO stages: setup prompt+contents -> call model -> parse tool calls "
+                "-> execute tools -> feed responses -> repeat until final text. "
+                f"Available handlers: {sorted(TOOL_HANDLERS.keys())}."
             ),
-        )
+        }
+    ]
 
-        fn_calls = _extract_function_calls(response)
-        if not fn_calls:
-            text = (getattr(response, "text", None) or "").strip()
-            return text, tool_trace
-
-        model_parts = [_function_call_part(name, args) for name, args in fn_calls]
-        contents.append(types.Content(role="model", parts=model_parts))
-
-        response_parts = []
-        for name, args in fn_calls:
-            _emit(
-                on_event,
-                {"type": "status", "status": "tool", "tool": name, "args": args},
-            )
-            if name not in TOOL_HANDLERS:
-                result: dict[str, Any] = {"error": f"Unknown tool '{name}'"}
-            else:
-                result = call_tool(name, args)
-
-            preview = json.dumps(result, ensure_ascii=False)
-            if len(preview) > 500:
-                preview = preview[:500] + "…"
-
-            entry = {"name": name, "args": args, "result_preview": preview}
-            tool_trace.append(entry)
-            _emit(on_event, {"type": "tool", **entry})
-            response_parts.append(_function_response_part(name, result))
-
-        contents.append(types.Content(role="user", parts=response_parts))
-
+    # TODO(Workshop 10 min)
+    # 1) Create tools = [types.Tool(function_declarations=FUNCTION_DECLARATIONS)].
+    # 2) Initialize contents with one user text message.
+    # 3) Initialize empty tool_trace list for executed tools.
+    #
+    # TODO(Workshop 10 min)
+    # 4) Add a for-loop for max_tool_rounds + 1 iterations.
+    # 5) Emit status='thinking' before each model call.
+    # 6) Call client.models.generate_content(...) with system prompt and tools.
+    #
+    # TODO(Workshop 10 min)
+    # 7) Extract function calls from model response.
+    # 8) If no function calls: return response.text + tool_trace.
+    #
+    # TODO(Workshop 10 min)
+    # 9) For each function call: validate tool name in TOOL_HANDLERS.
+    # 10) Execute handler via apps.gateway.tools.call_tool(name, args).
+    # 11) Append compact preview entries to tool_trace.
+    #
+    # TODO(Workshop 10 min)
+    # 12) Convert tool results into function_response parts.
+    # 13) Append function_response parts back to contents as next user turn.
+    # 14) Continue loop until final text or max rounds reached.
+    #
+    # TODO(Workshop 5 min)
+    # 15) Add graceful fallback text if loop ends without final content.
+    # Keep this placeholder reply so API and UI remain testable before implementation.
     return (
-        "I ran into a loop using tools. Please try a simpler request.",
+        "TODO: attendees should implement the Gemini agent loop in apps/gateway/agent.py.",
         tool_trace,
     )

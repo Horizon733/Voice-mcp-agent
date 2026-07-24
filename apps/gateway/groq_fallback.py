@@ -1,13 +1,13 @@
-"""Groq fallback with tool-calling parity for web_search and notes."""
+"""Workshop scaffold for Groq fallback with tool-calling.
+
+Implementation details are intentionally left as TODO items for attendees.
+"""
 from __future__ import annotations
 
-import json
 from typing import Any, Callable
 
-import requests
-
 from apps.gateway import config
-from apps.gateway.tools import TOOL_HANDLERS, call_tool
+from apps.gateway.tools import TOOL_HANDLERS
 
 EventCallback = Callable[[dict[str, Any]], None]
 
@@ -68,42 +68,15 @@ def _emit(cb: EventCallback | None, event: dict[str, Any]) -> None:
 
 
 def _post_chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    url = f"{config.GROQ_BASE_URL}/chat/completions"
-    payload: dict[str, Any] = {
-        "model": config.GROQ_MODEL,
-        "messages": messages,
-        "tools": GROQ_TOOLS,
-        "tool_choice": "auto",
-        "temperature": 0.2,
-        "max_tokens": 320,
-    }
-    headers = {
-        "Authorization": f"Bearer {config.GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    response = requests.post(
-        url,
-        json=payload,
-        headers=headers,
-        timeout=config.GROQ_TIMEOUT_SEC,
+    # TODO: implement Groq HTTP call. Keep this helper for attendee implementation.
+    raise RuntimeError(
+        "TODO: implement _post_chat in apps/gateway/groq_fallback.py"
     )
-    if response.status_code >= 400:
-        detail = response.text[:500]
-        raise RuntimeError(f"Groq API error ({response.status_code}): {detail}")
-    return response.json()
 
 
 def _parse_args(raw: str) -> dict[str, Any]:
-    text = (raw or "").strip()
-    if not text:
-        return {}
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if isinstance(parsed, dict):
-        return parsed
+    # TODO: parse JSON tool arguments from Groq tool call payload.
+    _ = raw
     return {}
 
 
@@ -113,69 +86,23 @@ def ask_groq(
     on_event: EventCallback | None = None,
     max_tool_rounds: int = 4,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Run Groq with tool-calling loop. Returns (final_text, tool_trace)."""
+    """TODO: run Groq with a tool-calling loop. Returns (final_text, tool_trace)."""
     if not config.GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY is not set")
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": GROQ_SYSTEM_PROMPT_WITH_TOOLS},
-        {"role": "user", "content": user_text},
-    ]
-    tool_trace: list[dict[str, Any]] = []
-
-    for _round in range(max_tool_rounds + 1):
-        _emit(on_event, {"type": "status", "status": "thinking"})
-        data = _post_chat(messages)
-        message = (data.get("choices", [{}])[0] or {}).get("message", {}) or {}
-
-        tool_calls = message.get("tool_calls") or []
-        if not tool_calls:
-            text = str(message.get("content") or "").strip()
-            if text:
-                return text, tool_trace
-            raise RuntimeError("Groq returned an empty response")
-
-        assistant_message = {
-            "role": "assistant",
-            "content": message.get("content") or "",
-            "tool_calls": tool_calls,
+    _emit(on_event, {"type": "status", "status": "todo_groq"})
+    tool_trace = [
+        {
+            "name": "ask_groq",
+            "args": {"max_tool_rounds": max_tool_rounds},
+            "result_preview": (
+                "TODO: implement Groq chat call, parse tool_calls, dispatch tools "
+                f"from {sorted(TOOL_HANDLERS.keys())}, and return final text."
+            ),
         }
-        messages.append(assistant_message)
-
-        for tool_call in tool_calls:
-            fn = (tool_call or {}).get("function", {}) or {}
-            call_id = str((tool_call or {}).get("id") or "")
-            name = str(fn.get("name") or "")
-            args = _parse_args(str(fn.get("arguments") or ""))
-
-            _emit(
-                on_event,
-                {"type": "status", "status": "tool", "tool": name, "args": args},
-            )
-
-            if name not in TOOL_HANDLERS:
-                result: dict[str, Any] = {"error": f"Unknown tool '{name}'"}
-            else:
-                result = call_tool(name, args)
-
-            preview = json.dumps(result, ensure_ascii=False)
-            if len(preview) > 500:
-                preview = preview[:500] + "…"
-
-            entry = {"name": name, "args": args, "result_preview": preview}
-            tool_trace.append(entry)
-            _emit(on_event, {"type": "tool", **entry})
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "name": name,
-                    "content": json.dumps(result, ensure_ascii=False),
-                }
-            )
-
+    ]
+    _ = user_text
     return (
-        "I ran into a loop using tools. Please try a simpler request.",
+        "TODO: attendees should implement Groq fallback in apps/gateway/groq_fallback.py.",
         tool_trace,
     )

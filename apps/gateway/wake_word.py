@@ -1,8 +1,6 @@
-"""'Hey Jarvis' wake-word detection via openWakeWord — fully local, no account/key.
+"""Workshop scaffold for wake-word detection.
 
-Runs on CPU via ONNX Runtime (the only backend openWakeWord ships on Windows;
-the model is tiny enough that CPU is plenty fast on any platform, so this
-never needs CUDA/MPS).
+Attendees can implement loading and scoring in small TODO steps.
 """
 from __future__ import annotations
 
@@ -19,27 +17,18 @@ class WakeWordDetector:
         self._model = None
 
     def load(self) -> bool:
-        try:
-            import openwakeword
-            from openwakeword.model import Model
-
-            openwakeword.utils.download_models([WAKE_MODEL_NAME])
-            self._model = Model(
-                wakeword_models=[WAKE_MODEL_NAME],
-                inference_framework="onnx",
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001
-            print(f"[gateway] WARNING: wake-word model failed to load: {exc}")
-            self._model = None
-            return False
+        # TODO(Workshop):
+        # 1) Import openwakeword
+        # 2) Download/load WAKE_MODEL_NAME
+        # 3) Store model in self._model
+        self._model = None
+        return False
 
     @property
     def loaded(self) -> bool:
         return self._model is not None
 
     def score(self, frame: np.ndarray) -> float:
-        if self._model is None:
-            return 0.0
-        predictions = self._model.predict(frame)
-        return float(predictions.get(WAKE_MODEL_NAME, 0.0))
+        # TODO(Workshop): return wake score from loaded model prediction.
+        _ = frame
+        return 0.0

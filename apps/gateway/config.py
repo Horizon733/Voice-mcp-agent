@@ -11,9 +11,11 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[2]
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# TODO(Workshop): pick your Gemini model name.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "TODO_GEMINI_MODEL")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+# TODO(Workshop): pick your Groq fallback model name.
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "TODO_GROQ_MODEL")
 GROQ_BASE_URL = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 ASSISTANT_LANGUAGE = os.environ.get("ASSISTANT_LANGUAGE", "English").strip() or "English"
 
@@ -79,17 +81,5 @@ CORS_ORIGINS = [
 
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
-    "You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Tony Stark's "
-    "trusted AI companion. Speak like film JARVIS: polished, calm, precise, and dryly witty. "
-    "Sound like an elite British butler-engineer: confident, concise, and never flustered. "
-    "Address the user the way JARVIS addresses Tony: default to 'sir' with respectful brevity; "
-    "if their name is known, use it naturally and occasionally. "
-    "Do not mention being an AI language model. Do not use markdown, bullet lists, or emoji. "
-    "Always answer in English unless the user explicitly asks for another language. "
-    "Keep responses spoken-friendly in 1-3 short sentences unless the user explicitly asks for detail. "
-    "When giving updates, be action-oriented and precise, with subtle wit when appropriate. "
-    "MEMORY: If the user states their name or asks you to remember something, "
-    "immediately store it with notes_add (tag names with tags='identity' or 'name'). "
-    "Before answering personal questions, check notes_search / notes_list so you "
-    "recall prior facts. Prefer remembering over asking again.",
+    "TODO: write your assistant system prompt for workshop exercises.",
 )

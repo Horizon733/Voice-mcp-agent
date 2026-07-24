@@ -1,11 +1,8 @@
-"""Model loading (once at startup) and audio-in -> audio-out turn pipeline."""
+"""Workshop scaffold for startup/model wiring and turn pipeline."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from typing import Any, Callable
 
-from faster_whisper import WhisperModel
 from google import genai
 
 from apps.gateway import config
@@ -25,7 +22,7 @@ class GatewayModels:
     """Singleton STT / TTS / Gemini clients, loaded once at startup."""
 
     def __init__(self):
-        self.whisper: WhisperModel | None = None
+        self.whisper = None
         self.tts = None
         self.gemini: genai.Client | None = None
         self.groq_enabled = False
@@ -35,53 +32,26 @@ class GatewayModels:
         self.wake_word = WakeWordDetector()
         self.mcp_tools = [
             "web_search",
-            "get_weather",
-            "get_news",
-            "notes_add",
-            "notes_list",
-            "notes_search",
             "notes",
         ]
 
     def load(self):
-        compute_type = _stt_compute_type(config.STT_DEVICE, config.STT_COMPUTE_TYPE)
-        print(
-            f"[gateway] Loading faster-whisper '{config.WHISPER_MODEL}' "
-            f"on {config.STT_DEVICE} (compute={compute_type}, profile={config.STT_PROFILE})..."
-        )
-        self.whisper = WhisperModel(
-            config.WHISPER_MODEL,
-            device=config.STT_DEVICE,
-            compute_type=compute_type,
-        )
-
+        # TODO(Workshop step 1): Load STT model and assign self.whisper.
+        #   1a) compute_type = _stt_compute_type(...)
+        #   1b) self.whisper = WhisperModel(...)
+        # TODO(Workshop step 2): Load TTS model + conditionals via load_tts().
+        # TODO(Workshop step 3): Initialize Gemini client when API key is set.
+        # TODO(Workshop step 4): Enable optional Groq fallback.
+        # TODO(Workshop step 5): Load wake-word detector.
+        self.whisper = None
         self.tts, _Conditionals, self.tts_device, self.tts_backend, self.conds_loaded = load_tts(
             device=config.TTS_DEVICE,
             backend=config.TTS_BACKEND,
             conds_path=config.JARVIS_CONDS,
         )
-        if not self.conds_loaded:
-            print(
-                f"[gateway] WARNING: {config.JARVIS_CONDS} not found. "
-                "Run scripts/build_jarvis_conds.py before calling /v1/turn or /tts."
-            )
-
-        if config.GEMINI_API_KEY:
-            self.gemini = genai.Client(api_key=config.GEMINI_API_KEY)
-        else:
-            print("[gateway] WARNING: GEMINI_API_KEY not set. /v1/turn will fail until it is.")
-            self.gemini = None
-
+        self.gemini = genai.Client(api_key=config.GEMINI_API_KEY) if config.GEMINI_API_KEY else None
         self.groq_enabled = bool(config.GROQ_API_KEY)
-        if self.groq_enabled:
-            print(f"[gateway] Groq fallback enabled with model '{config.GROQ_MODEL}'.")
-        else:
-            print("[gateway] Groq fallback disabled (GROQ_API_KEY not set).")
-
-        print(f"[gateway] MCP tools ready: {', '.join(self.mcp_tools)}")
-
-        if self.wake_word.load():
-            print("[gateway] Wake-word ('hey jarvis') model ready.")
+        self.wake_word.load()
 
 
 models = GatewayModels()
@@ -127,69 +97,39 @@ def _stt_decode_options() -> dict[str, Any]:
 
 
 def transcribe(audio_bytes: bytes, on_event: EventCallback | None = None) -> str:
+    _ = audio_bytes
     if on_event:
-        on_event({"type": "status", "status": "transcribing"})
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp.write(audio_bytes)
-        tmp_path = tmp.name
-    try:
-        segments, _info = models.whisper.transcribe(tmp_path, **_stt_decode_options())
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-        if on_event:
-            on_event({"type": "transcript", "text": text})
-        return text
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        on_event({"type": "status", "status": "todo_transcribe"})
+    # TODO(Workshop 10 min): persist incoming audio bytes to temporary wav/webm file.
+    # TODO(Workshop 10 min): call models.whisper.transcribe(temp_path, **_stt_decode_options()).
+    # TODO(Workshop 5 min): join segment text into one transcript string.
+    # TODO(Workshop 5 min): emit transcript event and clean up temp file.
+    return "TODO: implement transcription in apps/gateway/pipeline.py"
 
 
 def ask_gemini(
     transcript: str,
     on_event: EventCallback | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    gemini_error: Exception | None = None
+    if on_event:
+        on_event({"type": "status", "status": "todo_llm"})
 
+    # TODO: primary path - call Gemini via run_agent.
     if models.gemini is not None:
-        try:
-            return run_agent(models.gemini, transcript, on_event=on_event)
-        except Exception as exc:  # noqa: BLE001
-            gemini_error = exc
+        return run_agent(models.gemini, transcript, on_event=on_event)
 
+    # TODO: fallback path - call Groq when enabled.
     if models.groq_enabled:
-        try:
-            reply, groq_trace = ask_groq(transcript, on_event=on_event)
-            fallback_entry = {
-                "name": "llm_fallback",
-                "args": {"provider": "groq", "model": config.GROQ_MODEL},
-                "result_preview": "Gemini failed; continued with Groq fallback.",
-            }
-            if on_event:
-                on_event({"type": "tool", **fallback_entry})
-            return reply, [fallback_entry, *groq_trace]
-        except Exception as groq_exc:  # noqa: BLE001
-            if gemini_error is None:
-                raise ConfigError(f"Groq fallback failed: {groq_exc}") from groq_exc
-            raise ConfigError(
-                f"Gemini failed: {gemini_error}. Groq fallback failed: {groq_exc}"
-            ) from groq_exc
+        return ask_groq(transcript, on_event=on_event)
 
-    if gemini_error is not None:
-        raise ConfigError(
-            f"Gemini failed and Groq fallback is not configured: {gemini_error}"
-        ) from gemini_error
-
-    raise ConfigError(
-        "No LLM configured. Set GEMINI_API_KEY or GROQ_API_KEY in .env and restart the gateway."
-    )
+    raise ConfigError("TODO: configure GEMINI_API_KEY or GROQ_API_KEY for LLM step")
 
 
 def synthesize(text: str, on_event: EventCallback | None = None) -> bytes:
     if not models.conds_loaded:
-        raise ConfigError(
-            f"No Jarvis conditionals loaded ({config.JARVIS_CONDS} missing). "
-            "Run: python scripts/build_jarvis_conds.py"
-        )
+        raise ConfigError("TODO: load/build voice conditionals before TTS synthesis")
     if on_event:
-        on_event({"type": "status", "status": "speaking"})
+        on_event({"type": "status", "status": "todo_tts"})
     try:
         return synthesize_to_wav_bytes(models.tts, text)
     except VoiceError as exc:
@@ -200,6 +140,7 @@ def run_turn(
     audio_bytes: bytes,
     on_event: EventCallback | None = None,
 ) -> dict:
+    # TODO(Workshop): keep this orchestrator but implement each stage incrementally.
     transcript = transcribe(audio_bytes, on_event=on_event)
     if not transcript:
         raise ConfigError("I couldn't hear anything clearly. Please try again.")

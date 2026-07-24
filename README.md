@@ -51,12 +51,20 @@ The model auto-downloads the first time the gateway starts (needs internet once;
 
 | Tool | What it does |
 |---|---|
-| `web_search` | DuckDuckGo web search |
-| `get_weather` | Open-Meteo weather by city |
-| `get_news` | DuckDuckGo news headlines |
-| `notes_add` / `notes_list` / `notes_search` | Remember / recall things you said (SQLite in `data/notes.db`) |
+| `web_search` | Search the web (workshop TODO scaffold) |
+| `notes` | Unified memory tool with action=add/list/search (workshop TODO scaffold) |
 
 If Gemini fails at runtime and Groq fallback is configured, the fallback path also runs the same tool set before answering.
+
+### Find workshop TODOs quickly
+
+Use VS Code Search for all coding checkpoints:
+
+- Query: `TODO(Workshop|:)`
+- Regex: on
+- Files to include: `apps/gateway/**,mcp_servers/assistant/**`
+
+Also see the attendee checklist in `WORKSHOP_TODOS.md`.
 
 Try saying:
 - “What's the weather in Mumbai?”
