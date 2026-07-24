@@ -9,6 +9,7 @@ const SILENCE_STOP_MS = 1100;
 const SILENCE_MIN_MS = 600;
 const SILENCE_MAX_MS = 12000;
 const SILENCE_THRESHOLD = 0.06;
+const WAKE_REARM_DELAY_MS = 300;
 
 function pickRecorderMimeType() {
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) {
@@ -107,6 +108,7 @@ export default function App() {
   const [tools, setTools] = useState([]);
   const [error, setError] = useState("");
   const [activeTool, setActiveTool] = useState("");
+  const [wakeEnabled, setWakeEnabled] = useState(false);
   const [wakeActive, setWakeActive] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
 
@@ -121,6 +123,8 @@ export default function App() {
   const silenceWatchRef = useRef(null);
   const wakeStopRef = useRef(null);
   const wakeWantedRef = useRef(false);
+  const playbackActiveRef = useRef(false);
+  const wakeRearmTimerRef = useRef(null);
   const statusRef = useRef("idle");
 
   statusRef.current = status;
@@ -149,6 +153,9 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (wakeRearmTimerRef.current) {
+        window.clearTimeout(wakeRearmTimerRef.current);
+      }
       wakeStopRef.current?.();
       silenceWatchRef.current?.();
       stopMicLevelRef.current?.();
@@ -165,6 +172,7 @@ export default function App() {
   }, []);
 
   const stopPlayback = useCallback(() => {
+    playbackActiveRef.current = false;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -213,6 +221,7 @@ export default function App() {
           setReply(String(msg.text || ""));
         } else if (type === "audio") {
           const audio = playWavBase64(String(msg.base64 || ""), audioRef);
+          playbackActiveRef.current = true;
           setStatus("speaking");
           try {
             const audioCtx = getAudioCtx();
@@ -236,9 +245,20 @@ export default function App() {
             audio.addEventListener(
               "ended",
               () => {
+                playbackActiveRef.current = false;
                 stopPlaybackLevelRef.current?.();
                 setLevel(0);
                 setStatus("idle");
+              },
+              { once: true }
+            );
+            audio.addEventListener(
+              "error",
+              () => {
+                playbackActiveRef.current = false;
+                stopPlaybackLevelRef.current?.();
+                setLevel(0);
+                setStatus(wakeWantedRef.current ? "idle" : "error");
               },
               { once: true }
             );
@@ -247,18 +267,22 @@ export default function App() {
           }
         } else if (type === "done") {
           setActiveTool("");
-          if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
+          if (
+            !playbackActiveRef.current
+            && (!audioRef.current || audioRef.current.ended || audioRef.current.paused)
+          ) {
             setStatus((s) => (s === "speaking" ? s : "idle"));
           }
         } else if (type === "error") {
           setError(String(msg.message || "Unknown error"));
-          setStatus("error");
+          // Keep hands-free wake mode armed even when a turn fails.
+          setStatus(wakeWantedRef.current ? "idle" : "error");
         }
       };
 
       ws.onerror = () => {
         setError("WebSocket error - is the gateway running on :8000?");
-        setStatus("error");
+        setStatus(wakeWantedRef.current ? "idle" : "error");
       };
     },
     [getAudioCtx, setLevel]
@@ -330,7 +354,7 @@ export default function App() {
       setStatus("recording");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Microphone permission denied");
-      setStatus("error");
+      setStatus(wakeWantedRef.current ? "idle" : "error");
     }
   }, [getAudioCtx, sendAudio, setLevel, stopPlayback]);
 
@@ -395,20 +419,53 @@ export default function App() {
       setWakeActive(true);
     } catch (err) {
       wakeWantedRef.current = false;
+      setWakeEnabled(false);
       setWakeActive(false);
       setError(err instanceof Error ? err.message : "Microphone permission denied");
     }
   }, [startHandsFreeRecording]);
 
   useEffect(() => {
-    if (wakeWantedRef.current && !wakeStopRef.current && status === "idle") {
-      void startWakeListener();
+    if (wakeRearmTimerRef.current) {
+      window.clearTimeout(wakeRearmTimerRef.current);
+      wakeRearmTimerRef.current = null;
     }
+
+    if (
+      wakeWantedRef.current
+      && !wakeStopRef.current
+      && !playbackActiveRef.current
+      && (status === "idle" || status === "error")
+    ) {
+      wakeRearmTimerRef.current = window.setTimeout(() => {
+        wakeRearmTimerRef.current = null;
+        if (
+          wakeWantedRef.current
+          && !wakeStopRef.current
+          && !playbackActiveRef.current
+          && (statusRef.current === "idle" || statusRef.current === "error")
+        ) {
+          void startWakeListener();
+        }
+      }, WAKE_REARM_DELAY_MS);
+    }
+
+    return () => {
+      if (wakeRearmTimerRef.current) {
+        window.clearTimeout(wakeRearmTimerRef.current);
+        wakeRearmTimerRef.current = null;
+      }
+    };
   }, [status, startWakeListener]);
 
   const toggleWakeWord = useCallback(async () => {
     if (wakeWantedRef.current) {
       wakeWantedRef.current = false;
+      setWakeEnabled(false);
+      if (wakeRearmTimerRef.current) {
+        window.clearTimeout(wakeRearmTimerRef.current);
+        wakeRearmTimerRef.current = null;
+      }
       wakeStopRef.current?.();
       wakeStopRef.current = null;
       setWakeActive(false);
@@ -416,6 +473,7 @@ export default function App() {
     }
 
     wakeWantedRef.current = true;
+    setWakeEnabled(true);
     await startWakeListener();
   }, [startWakeListener]);
 
@@ -433,6 +491,7 @@ export default function App() {
         reply={reply}
         tools={tools}
         error={error}
+        wakeEnabled={wakeEnabled}
         wakeActive={wakeActive}
         busy={busy}
         recording={recording}

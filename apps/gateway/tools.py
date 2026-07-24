@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,11 +16,115 @@ import xml.etree.ElementTree as ET
 
 from apps.gateway import config
 
+_DDGS_CLIENT: Any | None = None
+_DDGS_LOCK = threading.Lock()
+_DDGS_LAST_CALL_MONO = 0.0
+
 
 def _http_json(url: str, timeout: float = 15.0) -> Any:
     req = Request(url, headers={"User-Agent": "mcp-voice/1.0"})
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _ddgs_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
+
+
+def _normalize_delay_bounds() -> tuple[float, float]:
+    low = max(0.0, float(config.DUCKDUCKGO_MIN_DELAY_SEC))
+    high = max(low, float(config.DUCKDUCKGO_MAX_DELAY_SEC))
+    return low, high
+
+
+def _get_or_create_ddgs(DDGS: Any) -> Any:
+    global _DDGS_CLIENT
+    if _DDGS_CLIENT is None:
+        _DDGS_CLIENT = DDGS(
+            headers=_ddgs_headers(),
+            timeout=float(config.DUCKDUCKGO_TIMEOUT_SEC),
+        )
+    return _DDGS_CLIENT
+
+
+def _reset_ddgs_client() -> None:
+    global _DDGS_CLIENT
+    _DDGS_CLIENT = None
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(token in msg for token in ("ratelimit", "rate limit", "403", "429"))
+
+
+def _run_ddgs_call(DDGS: Any, method: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    global _DDGS_LAST_CALL_MONO
+
+    for attempt in range(2):
+        try:
+            with _DDGS_LOCK:
+                low, high = _normalize_delay_bounds()
+                now = time.monotonic()
+                elapsed = now - _DDGS_LAST_CALL_MONO
+                wait_for = max(0.0, random.uniform(low, high) - elapsed)
+                if wait_for > 0.0:
+                    time.sleep(wait_for)
+
+                ddgs = _get_or_create_ddgs(DDGS)
+                call = getattr(ddgs, method)
+                items = list(call(*args, **kwargs))
+                _DDGS_LAST_CALL_MONO = time.monotonic()
+                return items
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 0 and _is_rate_limited(exc):
+                # Re-create the client to refresh server-side/session cookies after a block.
+                with _DDGS_LOCK:
+                    _reset_ddgs_client()
+                time.sleep(max(0.0, float(config.DUCKDUCKGO_RETRY_BACKOFF_SEC)))
+                continue
+            raise
+    return []
+
+
+def _google_news_rss_search(query: str, max_results: int) -> list[dict[str, Any]]:
+    url = (
+        "https://news.google.com/rss/search?q="
+        f"{quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+    )
+    req = Request(url, headers={"User-Agent": "mcp-voice/1.0"})
+    with urlopen(req, timeout=15.0) as resp:
+        raw = resp.read()
+    root = ET.fromstring(raw)
+    channel = root.find("channel")
+    if channel is None:
+        return []
+
+    results: list[dict[str, Any]] = []
+    for item in channel.findall("item"):
+        title = item.findtext("title")
+        link = item.findtext("link")
+        desc = item.findtext("description")
+        results.append(
+            {
+                "title": title,
+                "url": link,
+                "snippet": desc,
+                "source": "google-news:rss",
+            }
+        )
+        if len(results) >= max_results:
+            break
+    return results
 
 
 def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
@@ -42,8 +149,9 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 
     def _ddgs_text_search() -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
-        ddgs = DDGS()
-        for item in ddgs.text(
+        for item in _run_ddgs_call(
+            DDGS,
+            "text",
             query,
             max_results=max_results,
             safesearch="off",
@@ -61,8 +169,7 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 
     def _ddgs_news_search() -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
-        ddgs = DDGS()
-        for item in ddgs.news(query, max_results=max_results):
+        for item in _run_ddgs_call(DDGS, "news", query, max_results=max_results):
             results.append(
                 {
                     "title": item.get("title"),
@@ -74,37 +181,10 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
         return results
 
     def _google_news_rss() -> list[dict[str, Any]]:
-        url = (
-            "https://news.google.com/rss/search?q="
-            f"{quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
-        )
-        req = Request(url, headers={"User-Agent": "mcp-voice/1.0"})
-        with urlopen(req, timeout=15.0) as resp:
-            raw = resp.read()
-        root = ET.fromstring(raw)
-        channel = root.find("channel")
-        if channel is None:
-            return []
-
-        results: list[dict[str, Any]] = []
-        for item in channel.findall("item"):
-            title = item.findtext("title")
-            link = item.findtext("link")
-            desc = item.findtext("description")
-            results.append(
-                {
-                    "title": title,
-                    "url": link,
-                    "snippet": desc,
-                    "source": "google-news:rss",
-                }
-            )
-            if len(results) >= max_results:
-                break
-        return results
+        return _google_news_rss_search(query, max_results)
 
     try:
-        from duckduckgo_search import DDGS
+        from duckduckgo_search import DDGS  # type: ignore[import-not-found]
     except ImportError:
         try:
             from ddgs import DDGS  # type: ignore
@@ -172,26 +252,47 @@ def get_weather(location: str) -> dict[str, Any]:
 def get_news(topic: str = "top technology", max_results: int = 5) -> dict[str, Any]:
     """News headlines via DuckDuckGo news. No API key required."""
     try:
-        from duckduckgo_search import DDGS
+        from duckduckgo_search import DDGS  # type: ignore[import-not-found]
     except ImportError:
         try:
             from ddgs import DDGS  # type: ignore
         except ImportError as exc:
             raise RuntimeError("Install duckduckgo-search (or ddgs)") from exc
 
-    articles = []
-    ddgs = DDGS()
-    for item in ddgs.news(topic, max_results=max_results):
-        articles.append(
-            {
-                "title": item.get("title"),
-                "url": item.get("url") or item.get("href"),
-                "source": item.get("source"),
-                "date": item.get("date"),
-                "snippet": item.get("body"),
-            }
-        )
-    return {"topic": topic, "articles": articles}
+    max_results = max(1, min(int(max_results or 5), 10))
+    errors: list[str] = []
+    articles: list[dict[str, Any]] = []
+
+    try:
+        for item in _run_ddgs_call(DDGS, "news", topic, max_results=max_results):
+            articles.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url") or item.get("href"),
+                    "source": item.get("source"),
+                    "date": item.get("date"),
+                    "snippet": item.get("body"),
+                }
+            )
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"ddgs_news: {exc}")
+
+    if not articles:
+        for item in _google_news_rss_search(topic, max_results):
+            articles.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url"),
+                    "source": "google-news:rss",
+                    "date": None,
+                    "snippet": item.get("snippet"),
+                }
+            )
+
+    payload: dict[str, Any] = {"topic": topic, "articles": articles}
+    if errors:
+        payload["provider_errors"] = errors
+    return payload
 
 
 def _notes_db() -> Path:

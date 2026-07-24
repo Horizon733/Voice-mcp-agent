@@ -48,6 +48,7 @@ export default function DashboardOverlay({
   reply,
   tools = [],
   error,
+  wakeEnabled,
   wakeActive,
   busy,
   recording,
@@ -173,11 +174,15 @@ export default function DashboardOverlay({
       <div className="hud-top-controls">
         <button
           type="button"
-          className={`wake-toggle ${wakeActive ? "on" : ""}`}
+          className={`wake-toggle ${wakeEnabled ? "on" : ""}`}
           disabled={!canWakeWord}
           onClick={onToggleWakeWord}
         >
-          {wakeActive ? "Wake word: HEY JARVIS" : "Enable wake word"}
+          {!wakeEnabled
+            ? "Enable wake word"
+            : wakeActive
+              ? "Wake word: listening"
+              : "Wake word: armed"}
         </button>
         <button type="button" className="silence-btn" onClick={onStopPlayback}>
           Silence
