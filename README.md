@@ -16,14 +16,30 @@ Terminal 1 — gateway:
 uvicorn apps.gateway.main:app --host 0.0.0.0 --port 8000
 ```
 
-Terminal 2 — React UI:
+Terminal 2 — Jarvis Orb UI:
 ```bash
-cd apps/web
+cd apps/jarvis-orb
 npm install
 npm run dev
 ```
 
 Open **http://127.0.0.1:5173** → hold **HOLD TO TALK** → release → hear Jarvis.
+
+### Simpler workshop mode (no gateway)
+
+If attendees only need a minimal local flow (agent + MCP tools + voice), skip FastAPI/UI and run one script:
+
+```bash
+python scripts/voice_agent_cli.py --text "Remember my workshop is Friday" --print-tools
+```
+
+Or with audio input:
+
+```bash
+python scripts/voice_agent_cli.py --audio-in sample.wav --audio-out reply.wav --print-tools
+```
+
+This uses the same core pipeline modules but avoids HTTP routes/websockets during the workshop.
 
 ### Optional: wake word ("Hey Jarvis")
 
@@ -40,11 +56,14 @@ The model auto-downloads the first time the gateway starts (needs internet once;
 | `get_news` | DuckDuckGo news headlines |
 | `notes_add` / `notes_list` / `notes_search` | Remember / recall things you said (SQLite in `data/notes.db`) |
 
+If Gemini fails at runtime and Groq fallback is configured, the fallback path also runs the same tool set before answering.
+
 Try saying:
-- “What’s the weather in Mumbai?”
+- “What's the weather in Mumbai?”
 - “Any news about AI chips?”
+- “Search the web for the latest AI chips headlines.”
 - “Remember that my workshop is on Friday.”
-- “What notes do you have?”
+- “What notes do you have saved for me?”
 
 Standalone MCP server (for Cursor / other MCP clients):
 ```bash
@@ -80,7 +99,7 @@ docker compose up mcp-server
 
 UI still runs on the host:
 ```bash
-cd apps/web && npm install && npm run dev
+cd apps/jarvis-orb && npm install && npm run dev
 ```
 
 ### NVIDIA GPU Docker (Windows/Linux only)
@@ -118,7 +137,43 @@ python scripts/build_jarvis_conds.py --device auto --backend turbo
 uvicorn apps.gateway.main:app --host 0.0.0.0 --port 8000
 ```
 
-Then start `apps/web` as above.
+Then start `apps/jarvis-orb` as above.
+
+### Improve Transcription Speed/Quality (recommended first)
+
+The gateway now supports STT tuning via `.env`:
+
+```bash
+# model
+WHISPER_MODEL=medium.en
+
+# decode profile: fast | balanced | accurate
+STT_PROFILE=balanced
+
+# auto chooses int8_float16 on cuda, int8 otherwise
+STT_COMPUTE_TYPE=auto
+
+# force English for better speed/stability (or use auto)
+STT_LANGUAGE=en
+
+# trim silence and tune search width
+STT_VAD_FILTER=true
+STT_BEAM_SIZE=2
+```
+
+Recommended low-latency setup on NVIDIA + conda:
+
+```bash
+WHISPER_MODEL=medium.en
+STT_DEVICE=cuda
+STT_PROFILE=fast
+STT_COMPUTE_TYPE=auto
+STT_LANGUAGE=en
+STT_VAD_FILTER=true
+STT_BEAM_SIZE=1
+```
+
+If GPU memory is still tight, use `small.en` with `STT_PROFILE=fast`.
 
 ---
 
@@ -139,7 +194,7 @@ Then start `apps/web` as above.
 
 ```
 apps/gateway/     FastAPI + STT/TTS + Gemini agent + tools
-apps/web/         React push-to-talk UI
+apps/jarvis-orb/  React orb UI (voice + wake word)
 mcp_servers/      MCP stdio server (same tools)
 data/notes.db     saved notes (created at runtime)
 voices/           jarvis wav + conds

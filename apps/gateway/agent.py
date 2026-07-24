@@ -88,8 +88,8 @@ FUNCTION_DECLARATIONS = [
 
 SYSTEM_PROMPT_WITH_TOOLS = (
     config.SYSTEM_PROMPT
-    + " Tools available: web_search, get_weather, get_news, "
-    "notes_add, notes_list, notes_search. "
+    + f" Language policy: respond in {config.ASSISTANT_LANGUAGE} unless the user explicitly asks for another language. "
+    + " Tools available: web_search, get_weather, get_news, notes_add, notes_list, notes_search. "
     "Use notes_add whenever the user shares their name or asks you to remember a fact. "
     "Use notes_search when addressing them or recalling prior details. "
     "Use weather/news/search when up-to-date info is needed. "

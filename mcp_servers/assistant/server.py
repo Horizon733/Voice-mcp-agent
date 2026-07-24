@@ -64,6 +64,27 @@ def notes_search(query: str, limit: int = 10) -> str:
     )
 
 
+@mcp.tool()
+def notes(
+    action: str,
+    content: str = "",
+    tags: str = "",
+    query: str = "",
+    limit: int = 10,
+) -> str:
+    """Compatibility wrapper for unified notes action=add|list|search."""
+    return json.dumps(
+        tool_impl.notes(
+            action=action,
+            content=content,
+            tags=tags,
+            query=query,
+            limit=limit,
+        ),
+        ensure_ascii=False,
+    )
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

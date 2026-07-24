@@ -1,0 +1,16 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: radial-gradient(circle at 55% 35%, #111c2d 0%, #060911 35%, #03040a 70%);
+  overflow: hidden;
+}

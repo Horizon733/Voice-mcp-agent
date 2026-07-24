@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 from apps.gateway import config
 
@@ -20,6 +22,87 @@ def _http_json(url: str, timeout: float = 15.0) -> Any:
 
 def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """Search the web (DuckDuckGo). No API key required."""
+    query = (query or "").strip()
+    max_results = max(1, min(int(max_results or 5), 10))
+    if not query:
+        return {"error": "Empty query", "query": query, "results": []}
+
+    def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for item in items:
+            url = str(item.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            out.append(item)
+            if len(out) >= max_results:
+                break
+        return out
+
+    def _ddgs_text_search() -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        ddgs = DDGS()
+        for item in ddgs.text(
+            query,
+            max_results=max_results,
+            safesearch="off",
+            backend="auto",
+        ):
+            results.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("href"),
+                    "snippet": item.get("body"),
+                    "source": "ddgs:text",
+                }
+            )
+        return results
+
+    def _ddgs_news_search() -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        ddgs = DDGS()
+        for item in ddgs.news(query, max_results=max_results):
+            results.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url") or item.get("href"),
+                    "snippet": item.get("body") or item.get("excerpt"),
+                    "source": "ddgs:news",
+                }
+            )
+        return results
+
+    def _google_news_rss() -> list[dict[str, Any]]:
+        url = (
+            "https://news.google.com/rss/search?q="
+            f"{quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+        )
+        req = Request(url, headers={"User-Agent": "mcp-voice/1.0"})
+        with urlopen(req, timeout=15.0) as resp:
+            raw = resp.read()
+        root = ET.fromstring(raw)
+        channel = root.find("channel")
+        if channel is None:
+            return []
+
+        results: list[dict[str, Any]] = []
+        for item in channel.findall("item"):
+            title = item.findtext("title")
+            link = item.findtext("link")
+            desc = item.findtext("description")
+            results.append(
+                {
+                    "title": title,
+                    "url": link,
+                    "snippet": desc,
+                    "source": "google-news:rss",
+                }
+            )
+            if len(results) >= max_results:
+                break
+        return results
+
     try:
         from duckduckgo_search import DDGS
     except ImportError:
@@ -28,17 +111,24 @@ def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
         except ImportError as exc:
             raise RuntimeError("Install duckduckgo-search (or ddgs)") from exc
 
-    results = []
-    ddgs = DDGS()
-    for item in ddgs.text(query, max_results=max_results):
-        results.append(
-            {
-                "title": item.get("title"),
-                "url": item.get("href"),
-                "snippet": item.get("body"),
-            }
-        )
-    return {"query": query, "results": results}
+    errors: list[str] = []
+    candidates: list[dict[str, Any]] = []
+
+    for provider in (_ddgs_text_search, _ddgs_news_search, _google_news_rss):
+        if len(candidates) >= max_results:
+            break
+        try:
+            candidates.extend(provider())
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{provider.__name__}: {exc}")
+
+    results = _dedupe(candidates)
+    payload: dict[str, Any] = {"query": query, "results": results}
+    if errors:
+        payload["provider_errors"] = errors
+    if not results:
+        payload["hint"] = "No search hits found. Try a more specific query."
+    return payload
 
 
 def get_weather(location: str) -> dict[str, Any]:
@@ -170,6 +260,35 @@ def notes_search(query: str, limit: int = 10) -> dict[str, Any]:
     return {"query": query, "count": len(notes), "notes": notes}
 
 
+def notes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Unified notes tool with add/list/search actions.
+
+    Accepts action either positionally or as a keyword so mixed call paths
+    do not fail with duplicate keyword errors.
+    """
+    action = kwargs.pop("action", "")
+    if args and not action:
+        action = args[0]
+
+    normalized = str(action or "").strip().lower()
+    if normalized == "add":
+        return notes_add(
+            content=str(kwargs.get("content", "")),
+            tags=str(kwargs.get("tags", "")),
+        )
+    if normalized == "list":
+        return notes_list(limit=int(kwargs.get("limit", 10)))
+    if normalized == "search":
+        return notes_search(
+            query=str(kwargs.get("query", "")),
+            limit=int(kwargs.get("limit", 10)),
+        )
+    return {
+        "error": "Invalid notes action",
+        "allowed_actions": ["add", "list", "search"],
+    }
+
+
 TOOL_HANDLERS = {
     "web_search": lambda **kw: web_search(
         query=kw.get("query", ""), max_results=int(kw.get("max_results", 5))
@@ -186,6 +305,7 @@ TOOL_HANDLERS = {
     "notes_search": lambda **kw: notes_search(
         query=kw.get("query", ""), limit=int(kw.get("limit", 10))
     ),
+    "notes": lambda **kw: notes(**kw),
 }
 
 
