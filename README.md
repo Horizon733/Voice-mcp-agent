@@ -10,6 +10,7 @@ Local voice agent: **STT** → **Gemini 2.5 Flash** (+ **MCP tools**) → **Jarv
 
 ## Talk to the agent (Phase 3)
 
+
 Terminal 1 — gateway:
 ```bash
 # after venv + deps + voices/jarvis_conds.pt + GEMINI_API_KEY in .env
